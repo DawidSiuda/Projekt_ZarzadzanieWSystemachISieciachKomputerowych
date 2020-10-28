@@ -125,13 +125,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Genetic.cpp" />
-    <ClCompile Include="GeneticAlgorithmIslandModel.cpp" />
+    <ClCompile Include="GeneticAlgorithmIslandsSupervisor.cpp" />
     <ClCompile Include="GeneticsAlgorithmIsland.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Genetic.h" />
-    <ClInclude Include="GeneticAlgorithmIslandModel.h" />
+    <ClInclude Include="GeneticAlgorithmIslandsSupervisor.h" />
     <ClInclude Include="GeneticsAlgorithmIsland.h" />
     <ClInclude Include="MyVector.h" />
   </ItemGroup>

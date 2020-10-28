@@ -6,11 +6,11 @@
 #include <conio.h>
 #include <sstream>
 #include <iomanip>
+#include <map>
 
 #include "Genetic.h"
 #include "MyVector.h"
-
-#define NUMBER_OF_TEST 1
+#include "GeneticAlgorithmIslandsSupervisor.h"
 
 using namespace std;
 using namespace std::chrono;
@@ -34,7 +34,7 @@ int main()
 			<< "MENU\n"
 			<< "1) Wczytaj graf\n"
 			<< "2) Wyswietl graf\n"
-			<< "6) Algorytm genetyczny\n"
+			<< "3) Algorytm genetyczny\n"
 			<< "0) Wyjscie\n";
 
 		option = _getch();
@@ -55,9 +55,7 @@ int main()
 				if (array != nullptr)
 					emptyArray(array, width);
 
-				//string defaultName("graf.txt");
-				//string defaultName("tsp_10b.txt");
-				string defaultName("17-2085.txt");
+				string defaultName("file04-47-1776.txt");
 				
 				cout << "File name (" << defaultName <<"): ";
 
@@ -86,7 +84,7 @@ int main()
 					cout << "ERROR: No load graph.\n";
 				break;
 			}
-			case '6':
+			case '3':
 			{
 				cout << "1) Manual test\n";
 				cout << "2) Automatic test\n";
@@ -170,11 +168,15 @@ int main()
 								catch (...) {}
 							}
 
-							auto start = high_resolution_clock::now();
-							Genetic(array, width, false, populationMinSize, populationMaxSize, mutateFactor, limitOfWorstSolution, numberOfThreads);
-							auto stop = high_resolution_clock::now();
-							auto duration = duration_cast<milliseconds>(stop - start);
-							cout << "Time: " << duration.count() << " milliseconds" << endl;
+							GeneticAlgorithmIslandsSupervisor gen(array,
+								width,
+								false,
+								populationMinSize,
+								populationMaxSize,
+								mutateFactor,
+								numberOfThreads,
+								limitOfWorstSolution);
+							gen.StartAlgorithmLoop();
 							break;
 						}
 						else
@@ -186,31 +188,25 @@ int main()
 					}
 					case '2':
 					{
-						const int numberOfFiles = 7;
-						string files[numberOfFiles] = { "6-80.txt",
-														"17-2085.txt",
-														"29-2020.txt",
-														"47-1776.txt",
-														"64-1839.txt",
-														"70-1950.txt",
-														"170-2755.txt" };
+						std::map<string, int> filemap;
+						filemap["file01-6-80.txt"] = 80;
+						filemap["file02-17-2085.txt"] = 2085;
+						filemap["file03-29-2020.txt"] = 2020;
+						filemap["file04-47-1776.txt"] = 1776;
+						filemap["file05-64-1839.txt"] = 1839;
+						filemap["file06-70-1950.txt"] = 1950;
+						filemap["file07-170-2755.txt"] = 2755;
+						
+						int populationMinSize = 20;
+						int populationMaxSize = 40;
+						float mutateFactor = 0.2;
+						int limitOfWorstSolution = 3000;
+						int maxNumberOfthreads = 4;
+						int numberOfTests = 10;
 
-						int optimalSolution[numberOfFiles] = { 80, 2085, 2020, 1776, 1839, 1950, 2755 };
-
-						cout << std::setw(PRINT_WIDTH + DAW) << "width"
-							<< std::setw(PRINT_WIDTH + DAW) << "minSiz"
-							<< std::setw(PRINT_WIDTH + DAW) << "maxSiz"
-							<< std::setw(PRINT_WIDTH + DAW) << "mutFac"
-							<< std::setw(PRINT_WIDTH + DAW) << "worstL"
-							<< std::setw(PRINT_WIDTH + DAW) << "popCon"
-							<< std::setw(PRINT_WIDTH + DAW) << "cost"
-							<< std::setw(PRINT_WIDTH + DAW) << "optSolu"
-							<< std::setw(PRINT_WIDTH + DAW) << "time"
-							<< std::setw(PRINT_WIDTH + DAW) << "blad" << endl;
-
-						for (int i = 0; i < numberOfFiles; i++) // Graph size.
+						for(auto it = filemap.begin(); it != filemap.end(); it++)
 						{
-							int returnValue = readGrapgFromFile(files[i], array, width);
+							int returnValue = readGrapgFromFile(it->first, array, width);
 
 							if (returnValue == -1)
 							{
@@ -218,64 +214,24 @@ int main()
 								return -1;
 							}
 
-							int populationMinSize = 20;
-							int populationMaxSize = 40;
-							float mutateFactor = 0.1;
-							int limitOfWorstSolution = 1500;
-
-							for (mutateFactor = 0.1; mutateFactor <= 0.5; mutateFactor *= 2)
-							{
-								for (limitOfWorstSolution = 750; limitOfWorstSolution <= 12000; limitOfWorstSolution *= 2)
-								{
-									int averageTime = 0;
-									int averagePopulationCounter = 0;
-									int averageSolution = 0;
-
-									for (int i = 0; i < NUMBER_OF_TEST; i++)
-									{
-										int popCounter;
-										auto start = high_resolution_clock::now();
-										averageSolution += genetic(array, width, true, populationMinSize, populationMinSize * 2,
-											mutateFactor, limitOfWorstSolution, &popCounter);
-										auto stop = high_resolution_clock::now();
-										auto duration = duration_cast<milliseconds>(stop - start);
-
-										averageTime += duration.count();
-										averagePopulationCounter += popCounter;
-									}
-
-
-									averageTime /= NUMBER_OF_TEST;
-									averagePopulationCounter /= NUMBER_OF_TEST;
-									averageSolution /= NUMBER_OF_TEST;
-
-									int other = 100 * ((float)averageSolution - (float)optimalSolution[i]) / (float)optimalSolution[i];
-
-									std::cout << std::setw(PRINT_WIDTH) << width << "; ";
-
-									std::cout << std::setw(PRINT_WIDTH) << populationMinSize << "; ";
-
-									std::cout << std::setw(PRINT_WIDTH) << populationMaxSize << "; ";
-
-									std::cout << std::setw(PRINT_WIDTH) << std::setprecision(1) << std::fixed << mutateFactor << "; ";
-
-									std::cout << std::setw(PRINT_WIDTH) << limitOfWorstSolution << "; ";
-
-									std::cout << std::setw(PRINT_WIDTH) << averagePopulationCounter << "; ";
-
-									std::cout << std::setw(PRINT_WIDTH) << averageSolution << "; ";
-
-									std::cout << std::setw(PRINT_WIDTH) << optimalSolution[i] << "; ";
-
-									std::cout << std::setw(PRINT_WIDTH) << averageTime << "; ";
-
-									std::cout << std::setw(PRINT_WIDTH) << other << "; ";
-
-									std::cout << std::endl;
-								}
-							}
-
+							//for (mutateFactor = 0.1; mutateFactor <= 0.5; mutateFactor *= 2)
+							//	for (limitOfWorstSolution = 750; limitOfWorstSolution <= 12000; limitOfWorstSolution *= 2)
+									for (int numberOfThreads = 1; numberOfThreads <= maxNumberOfthreads; numberOfThreads++)
+										for (int i = 0; i < numberOfTests; i++)
+										{
+											GeneticAlgorithmIslandsSupervisor gen(array,
+												width,
+												true,
+												populationMinSize,
+												populationMaxSize,
+												mutateFactor,
+												numberOfThreads,
+												limitOfWorstSolution,
+												it->second);
+											gen.StartAlgorithmLoop();
+										}
 						}
+						cout << endl;
 						break;
 					}
 				}

@@ -282,7 +282,7 @@ static void PrintSolution(MyVector<int>* solution, int** adjacencyMatrix)
 }
 
 int Genetic(int** aArray, int aWidth, int test, int populationMinSize, int populationMaxSize,
-				float mutateFactor, int limitOfWorstSolution, int numberOfThreads, int * aPopulationCounter)
+				float mutateFactor, int limitOfWorstSolution, int * aPopulationCounter)
 {
 	MyVector<MyVector<int>*>* populationVector = nullptr;
 	MyVector<int> bestSolution;

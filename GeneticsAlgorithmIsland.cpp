@@ -1,141 +1,200 @@
+#include <algorithm>    // std::random_shuffle
+#include <iomanip>
+
 #include "GeneticsAlgorithmIsland.h"
 
-void GeneticsAlgorithmIsland::GenerateStartupPopulation(int** inArray, int vertexNumber, std::vector<std::vector<int>*>*& populationVector,
-	int populationMinSize, int populationMaxSize)
+
+GeneticsAlgorithmIsland::GeneticsAlgorithmIsland()
 {
-	populationVector = new std::vector<std::vector<int>*>[populationMaxSize];
+	mGenerationCounter = 0;
+	mBestFoundSolutionCost.store(-1);
 
-	for (int i = 0; i < populationMaxSize - populationMinSize; ++i)
+	mNextIsland = nullptr;
+	mPreviousIsland = nullptr;
+}
+
+GeneticsAlgorithmIsland::~GeneticsAlgorithmIsland()
+{
+	StopAlgorithm();
+}
+
+bool GeneticsAlgorithmIsland::StartAlgorithm(int aWidth, int aPopulationMinSize,
+												int aPopulationMaxSize, int aLimitOfWorstSolution,
+													int** aArray, float aMutateFactor, bool aTest)
+{
+	mAlgorithmLoopIsWorking.store(true);
+
+	try
 	{
-		int* tab_i = new int[vertexNumber];
-		for (int i = 0; i < vertexNumber; ++i)
-			tab_i[i] = i;
+		mStopAlgorithmLoop.store(false);
+		mAlgorithmLoopThread = std::make_unique<std::thread>(&GeneticsAlgorithmIsland::Genetic,
+			this,
+			aArray,
+			aWidth,
+			aPopulationMinSize,
+			aPopulationMaxSize,
+			aMutateFactor,
+			aLimitOfWorstSolution,
+			rand(),
+			aTest);
+	}
+	catch (const std::exception&)
+	{
+		mAlgorithmLoopIsWorking.store(false);
+		return false;
+	}
 
-		std::vector<int>* res = new std::vector<int>;
-		for (int i = 0; i < vertexNumber; ++i)
-		{
-			int x = rand() % vertexNumber;
-			if (tab_i[x] == -1)
-			{
-				--i;
-				continue;
-			}
-			res->push_back(tab_i[x]);
-			tab_i[x] = -1;
-		}
-		delete[] tab_i;
-		populationVector->push_back(res);
+	return true;
+}
+
+bool GeneticsAlgorithmIsland::StopAlgorithm()
+{
+	mStopAlgorithmLoop.store(true);
+
+	if (mAlgorithmLoopThread)
+	{
+		mAlgorithmLoopThread->join();
+		mAlgorithmLoopThread.reset();
+	}
+	return true;
+}
+
+void GeneticsAlgorithmIsland::SetNextNode(GeneticsAlgorithmIsland* aNextIsland)
+{
+	std::lock_guard<std::mutex> lck(mUseOtherIslandsMutex);
+	mNextIsland = aNextIsland;
+}
+
+void GeneticsAlgorithmIsland::SetPreviousNode(GeneticsAlgorithmIsland* aPreviousIsland)
+{
+	std::lock_guard<std::mutex> lck(mUseOtherIslandsMutex);
+	mPreviousIsland = aPreviousIsland;
+}
+
+int GeneticsAlgorithmIsland::GetGenerationNumber()
+{
+	return mGenerationCounter;
+}
+
+int GeneticsAlgorithmIsland::GetSolutionCost()
+{
+	return mBestFoundSolutionCost.load();
+}
+
+bool GeneticsAlgorithmIsland::IsFinished()
+{
+	return mAlgorithmLoopIsWorking.load() == false;
+}
+
+void GeneticsAlgorithmIsland::GenerateStartupPopulation(int aVertexNumber, PopulationVector& aPopulationVector,
+															int aPopulationMinSize, int aPopulationMaxSize)
+{
+	aPopulationVector = std::make_shared<std::vector<std::shared_ptr<std::vector<int>>>>();
+
+	for (int i = 0; i < aPopulationMaxSize - aPopulationMinSize; ++i)
+	{
+		auto solution = std::make_shared<std::vector<int>>();
+		for (int i = 0; i < aVertexNumber; ++i)
+			solution->push_back(i);
+
+		std::random_shuffle(solution->begin(), solution->end());
+
+		aPopulationVector->push_back(solution);
 	}
 }
 
-int GeneticsAlgorithmIsland::CalcCost(std::vector<int>* solution, int** adjacencyMatrix)
+int GeneticsAlgorithmIsland::CalcCost(VectorSPtr aSolution, int** aAdjacencyMatrix)
 {
-	if (solution->size() <= 1)
+	if (aSolution->size() <= 1)
 		return -1;
 
 	int cost = 0;
 
-	int limit = solution->size() - 1;
-	for (int i = 0; i < limit; i++)
+	for (auto it = aSolution->begin(); it != aSolution->end()-1; ++it)
 	{
-		int a = solution->at(i);
-		int b = solution->at(i + 1);
-		cost += adjacencyMatrix[a][b];
+		cost += aAdjacencyMatrix[*it][*(it+1)];
 	}
 
-	cost += adjacencyMatrix[solution->at(solution->size() - 1)][solution->at(0)];
+	cost += aAdjacencyMatrix[aSolution->back()][aSolution->front()];
 
 	return cost;
 }
 
-void GeneticsAlgorithmIsland::QuickSort(int left, int right, int* const pathsSize, std::vector<std::vector<int>*>* populationVector)
+void GeneticsAlgorithmIsland::QuickSort(int aLeft, int aRight, VectorSPtr aPathsSize, PopulationVector aPopulationVector)
 {
 	int i, j, piwot;
 
-	i = (left + right) / 2;
+	i = (aLeft + aRight) / 2;
 
-	piwot = pathsSize[i];
-	pathsSize[i] = pathsSize[right];
+	piwot = aPathsSize->at(i);
+	aPathsSize->at(i) = aPathsSize->at(aRight);
 
-	std::vector<int>* tmp = (*populationVector)[i];
-	(*populationVector)[i] = (*populationVector)[right];
+	VectorSPtr tmp = aPopulationVector->at(i);
+	(*aPopulationVector)[i] = (*aPopulationVector)[aRight];
 
-	for (j = i = left; i < right; i++)
+	for (j = i = aLeft; i < aRight; i++)
 	{
-		if (pathsSize[i] < piwot)
+		if (aPathsSize->at(i) < piwot)
 		{
-			if (j == 3 && i == 4)
-			{
-				int a;
-			}
-			// Swap values.
-			swap(pathsSize[i], pathsSize[j]);
+			std::iter_swap(aPathsSize->begin() + i, aPathsSize->begin() + j);
 
-			populationVector->swap(i, j);
+			std::iter_swap(aPopulationVector->begin() + i, aPopulationVector->begin() + j);
 			j++;
 		}
 	}
 
-	pathsSize[right] = pathsSize[j];
-	pathsSize[j] = piwot;
+	aPathsSize->at(aRight) = aPathsSize->at(j);
+	aPathsSize->at(j) = piwot;
 
-	(*populationVector)[right] = (*populationVector)[j];
-	(*populationVector)[j] = tmp;
+	aPopulationVector->at(aRight) = (*aPopulationVector)[j];
+	aPopulationVector->at(j) = tmp;
 
-	if (left < j - 1)
+	if (aLeft < j - 1)
 	{
-		QuickSort(left, j - 1, pathsSize, populationVector);
+		QuickSort(aLeft, j - 1, aPathsSize, aPopulationVector);
 	}
 
-	if (j + 1 < right)
+	if (j + 1 < aRight)
 	{
-		QuickSort(j + 1, right, pathsSize, populationVector);
+		QuickSort(j + 1, aRight, aPathsSize, aPopulationVector);
 	}
 }
 
-void GeneticsAlgorithmIsland::SortPopulation(std::vector<std::vector<int>*>* populationVector, int** inArray)
+void GeneticsAlgorithmIsland::SortPopulation(PopulationVector aPopulationVector, int** aInArray)
 {
 	//
 	// Calculate paths.
 	//
 
-	int populationCurrentSize = populationVector->size();
+	size_t populationVectorSize = aPopulationVector->size();
 
-	int* pathsSize = new int[populationCurrentSize];
+	VectorSPtr lengthOfRoadsInSolutions = std::make_shared<std::vector<int>>(populationVectorSize);
 
-	for (int i = 0; i < populationCurrentSize; i++)
+	for (int i = 0; i < populationVectorSize; i++)
 	{
-		pathsSize[i] = CalcCost((*populationVector)[i], inArray);
+		lengthOfRoadsInSolutions->at(i) = CalcCost(aPopulationVector->at(i), aInArray);
 	}
 
 	//
 	// Sort population.
 	//
 
-	QuickSort(0, populationCurrentSize - 1, pathsSize, populationVector);
-
-	//
-	// Clear after sort.
-	//
-
-	delete[] pathsSize;
-	pathsSize = nullptr;
+	QuickSort(0, populationVectorSize - 1, lengthOfRoadsInSolutions, aPopulationVector);
 }
 
-void GeneticsAlgorithmIsland::ReducePopulation(std::vector<std::vector<int>*>* populationVector, int newSize)
+void GeneticsAlgorithmIsland::ReducePopulation(PopulationVector aPopulationVector, int aNewSize)
 {
-	while (populationVector->size() > newSize)
+	while (aPopulationVector->size() > aNewSize)
 	{
-		std::vector<int>* tmp = populationVector->pop_back();
-		delete tmp;
+		aPopulationVector->pop_back();
 	}
 }
 
-void GeneticsAlgorithmIsland::CrossPopulation(std::vector<std::vector<int>*>* populationVector, int populationMaxSize)
+void GeneticsAlgorithmIsland::CrossPopulation(PopulationVector aPopulationVector, int aPopulationMaxSize)
 {
-	int populationStartupSize = populationVector->size();
+	size_t populationStartupSize = aPopulationVector->size();
 
-	for (int i = 0; i < populationMaxSize - populationStartupSize; ++i)
+	for (int i = 0; i < aPopulationMaxSize - populationStartupSize; ++i)
 	{
 		//
 		// Select 2 parents.
@@ -144,18 +203,15 @@ void GeneticsAlgorithmIsland::CrossPopulation(std::vector<std::vector<int>*>* po
 		int rand1 = rand() % populationStartupSize;
 		int rand2 = rand() % populationStartupSize;
 
-		std::vector<int>* parent_a = populationVector->at(rand1);
-		std::vector<int>* parent_b = populationVector->at(rand2);
+		VectorSPtr parent_a = aPopulationVector->at(rand1);
+		VectorSPtr parent_b = aPopulationVector->at(rand2);
 
 		//
 		// Cross parents.
 		//
+		size_t parentSize = parent_b->size();
 
-		std::vector<int>* child;
-
-		int parentSize = parent_b->size();
-
-		child = new std::vector<int>(parentSize);
+		VectorSPtr child = std::make_shared<std::vector<int>>();
 
 		int beginIndex = rand() % (parentSize / 2);
 
@@ -182,126 +238,224 @@ void GeneticsAlgorithmIsland::CrossPopulation(std::vector<std::vector<int>*>* po
 			}
 		}
 
-		populationVector->push_back(child);
+		aPopulationVector->push_back(child);
 	}
 }
 
-void GeneticsAlgorithmIsland::MutatePopulation(std::vector<std::vector<int>*>* populationVector, float mutateFactor, int parrentNumber)
+void GeneticsAlgorithmIsland::MutatePopulation(PopulationVector aPopulationVector, float aMutateFactor, int aPopulationMinSize)
 {
-	//for (int i = parrentNumber; i < populationVector->size(); ++i)
-	for (int i = 1; i < populationVector->size(); ++i)
+
+	for (int i = 0; i < aPopulationVector->size(); ++i)
 	{
-		if (rand() % 101 <= mutateFactor * 100)
+		if (rand() % 101 <= aMutateFactor * 100)
 		{
-			Mutate(populationVector->at(i));
+			aPopulationVector->push_back(std::make_shared<std::vector<int>>(*aPopulationVector->at(i)));
+			Mutate(aPopulationVector->back());
 		}
 	}
 }
 
-void GeneticsAlgorithmIsland::Mutate(std::vector<int>* instance)
+void GeneticsAlgorithmIsland::Mutate(VectorSPtr aInstance)
 {
-	int vectorSize = instance->size();
+	size_t vectorSize = aInstance->size();
 
 	int begin = rand() % vectorSize;
 
 	int end = begin + rand() % (vectorSize - begin);
 
-	int numberOfNode = end - begin;
+	int numberOfNodesToReverse = end - begin;
 
-	if (numberOfNode < 2)
+	if (numberOfNodesToReverse < 2)
 		return;
 
 	//
 	// Reverse.
 	//
 
-	std::vector<int> backupInstance(numberOfNode);
-
-	for (int i = 0; i < numberOfNode; i++)
-	{
-		backupInstance.push_back(instance->at(i));
-	}
-
-	for (int i = 0; i < numberOfNode; i++)
-	{
-		(*instance)[i] = backupInstance.pop_back();
-	}
+	std::reverse(aInstance->begin() + begin, aInstance->begin() + end);
 }
 
-void GeneticsAlgorithmIsland::CheckBestSolution(std::vector<std::vector<int>*>* populationVector, int** adjacencyMatrix,
-	std::vector<int>& bestSolution, int& worseSolutionCounter)
+void GeneticsAlgorithmIsland::CheckAndSetBestSolution(PopulationVector aPopulationVector, int** aAdjacencyMatrix,
+														int& aWorseSolutionCounter)
 {
-	if (bestSolution.size() == 0)
+	std::lock_guard<std::mutex> lck(mBestFoundSolutionMutex);
+
+	if (mBestFoundSolution == nullptr)
 	{
-		bestSolution = *(*populationVector)[0];
+		mBestFoundSolution = std::make_shared<std::vector<int>>(*aPopulationVector->at(0));
 		return;
 	}
 
-	int first = CalcCost((*populationVector)[0], adjacencyMatrix);
-	int lassTheBest = CalcCost(&bestSolution, adjacencyMatrix);
+	int first = CalcCost(aPopulationVector->at(0), aAdjacencyMatrix);
+	int lastTheBest = CalcCost(mBestFoundSolution, aAdjacencyMatrix);
 
-	if (first < lassTheBest)
+	if (first < 1776 || lastTheBest < 1776)
 	{
-		bestSolution = *(*populationVector)[0];
-		worseSolutionCounter = 0;
+		int a = 0;
+	}
+
+	if (first < lastTheBest)
+	{
+		//std::cout << "aWorseSolutionCounter: " << std::setfill(' ') << std::setw(6) << aWorseSolutionCounter << " "
+		//	<< std::setfill(' ') << std::setw(6) << first << " "
+		//	<< std::setfill(' ') << std::setw(6) << lastTheBest << std::endl;
+
+		*mBestFoundSolution = *aPopulationVector->at(0);
+		aWorseSolutionCounter = 0;
 	}
 	else
 	{
-		worseSolutionCounter++;
+		aWorseSolutionCounter++;
 	}
 }
 
-void GeneticsAlgorithmIsland::PrintSolution(std::vector<int>* solution, int** adjacencyMatrix)
+void GeneticsAlgorithmIsland::PrintSolution(VectorSPtr aSolution, int** aAdjacencyMatrix, int aPopulationCounter)
 {
-	for (int i = 0; i != solution->size(); i++)
+	//std::cout << "Instance ID: " << mInstanceID << std::endl;
+	//std::cout << "Population counter: " << aPopulationCounter << std::endl;
+	for (int i : *aSolution)
 	{
-		std::cout << solution->at(i) << " -> ";
+		std::cout << i << " -> ";
 	}
-	std::cout << solution->at(0) << std::endl;
+	std::cout << aSolution->at(0) << std::endl;
 
-	std::cout << "\tSum: " << CalcCost(solution, adjacencyMatrix) << std::endl << std::endl;
+	//std::cout << "\tSum: " << CalcCost(aSolution, aAdjacencyMatrix) << std::endl << std::endl;
 }
 
-int GeneticsAlgorithmIsland::Genetic(int** aArray, int aWidth, int test, int populationMinSize, int populationMaxSize,
-	float mutateFactor, int limitOfWorstSolution, int numberOfThreads, int* aPopulationCounter)
+bool GeneticsAlgorithmIsland::DownloadBestSolutionFromNextNode(VectorSPtr& aSolution)
 {
-	std::vector<std::vector<int>*>* populationVector = nullptr;
-	std::vector<int> bestSolution;
+	std::lock_guard<std::mutex> lck(mUseOtherIslandsMutex);
+
+	if (mNextIsland == nullptr)
+	{
+		return false;
+	}
+
+	if (mNextIsland->GetBestSolution(aSolution) == true)
+	{
+		if (mNextNodeBestSolutionBackup == nullptr)
+		{
+			mNextNodeBestSolutionBackup = std::make_shared<std::vector<int>>(*aSolution);
+			return true;
+		}
+
+		if (*aSolution == *mNextNodeBestSolutionBackup)
+		{
+			return false;
+		}
+		else
+		{
+			*mNextNodeBestSolutionBackup = *aSolution;
+			return true;
+		}
+	}
+	else
+	{
+		return false;
+	}
+}
+
+bool GeneticsAlgorithmIsland::DownloadBestSolutionFromPreviousNode(VectorSPtr& aSolution)
+{
+	std::lock_guard<std::mutex> lck(mUseOtherIslandsMutex);
+
+	if (mPreviousIsland == nullptr)
+	{
+		return false;
+	}
+
+	if (mPreviousIsland->GetBestSolution(aSolution) == true)
+	{
+		if (mPreviousNodeBestSolutionBackup == nullptr)
+		{
+			mPreviousNodeBestSolutionBackup = std::make_shared<std::vector<int>>(*aSolution);
+			return true;
+		}
+
+		if (*aSolution == *mPreviousNodeBestSolutionBackup)
+		{
+			return false;
+		}
+		else
+		{
+			*mPreviousNodeBestSolutionBackup = *aSolution;
+			return true;
+		}
+	}
+	else
+	{
+		return false;
+	}
+}
+
+bool GeneticsAlgorithmIsland::GetBestSolution(VectorSPtr& aSolution)
+{
+	std::lock_guard<std::mutex> lck(mBestFoundSolutionMutex);
+
+	if (mBestFoundSolution == nullptr)
+	{
+		return false;
+	}
+	else
+	{
+		//aSolution = std::make_shared<std::vector<int>>(*mBestFoundSolution);
+		aSolution = mBestFoundSolution;
+		return true;
+	}
+}
+
+void GeneticsAlgorithmIsland::DownloadBestSolutionFromNextAndPreviousNode(PopulationVector aPopulationVector)
+{
+	VectorSPtr bestSolution;
+	if (DownloadBestSolutionFromNextNode(bestSolution) == true)
+	{
+		aPopulationVector->push_back(std::make_shared<std::vector<int>>(*bestSolution));
+	}
+	
+	if (DownloadBestSolutionFromPreviousNode(bestSolution) == true)
+	{
+		aPopulationVector->push_back(std::make_shared<std::vector<int>>(*bestSolution));
+	}
+}
+
+int GeneticsAlgorithmIsland::Genetic(int** aArray, int aWidth, int aPopulationMinSize, int aPopulationMaxSize,
+										float aMutateFactor, int aLimitOfWorstSolution, int aSeed, int aTest)
+{
+	srand(aSeed);
+	PopulationVector populationVector;
 
 	int worseSolutionCounter = 0;
-	int populationCounter = 0;
+	mGenerationCounter = 0;
 
-	GenerateStartupPopulation(aArray, aWidth, populationVector, populationMinSize, populationMaxSize);
+	GenerateStartupPopulation(aWidth, populationVector, aPopulationMinSize, aPopulationMaxSize);
 
-	CheckBestSolution(populationVector, aArray, bestSolution, worseSolutionCounter);
+	CheckAndSetBestSolution(populationVector, aArray, worseSolutionCounter);
 
 	SortPopulation(populationVector, aArray);
 
-	while (worseSolutionCounter < limitOfWorstSolution)
+	while (worseSolutionCounter < aLimitOfWorstSolution)
 	{
-		ReducePopulation(populationVector, populationMinSize);
-		CrossPopulation(populationVector, populationMaxSize);
-		MutatePopulation(populationVector, mutateFactor, populationMinSize);
+		ReducePopulation(populationVector, aPopulationMinSize);
+		CrossPopulation(populationVector, aPopulationMaxSize);
+		MutatePopulation(populationVector, aMutateFactor, aPopulationMinSize);
+		if (mGenerationCounter % 8 == 0)
+			DownloadBestSolutionFromNextAndPreviousNode(populationVector);
 		SortPopulation(populationVector, aArray);
-		CheckBestSolution(populationVector, aArray, bestSolution, worseSolutionCounter);
+		CheckAndSetBestSolution(populationVector, aArray, worseSolutionCounter);
 
-		populationCounter++;
+		mGenerationCounter++;
 	}
 
-	if (test == false)
+	mBestFoundSolutionMutex.lock();
+	VectorSPtr bestFoundSolutionCopy = std::make_shared<std::vector<int>>(*mBestFoundSolution);
+	mBestFoundSolutionMutex.unlock();
+
+	if (false)
 	{
-		PrintSolution(&bestSolution, aArray);
+		PrintSolution(bestFoundSolutionCopy, aArray, mGenerationCounter);
 	}
 
-	if (aPopulationCounter != nullptr)
-	{
-		*aPopulationCounter = populationCounter;
-	}
-
-	while (!populationVector->empty())
-	{
-		delete populationVector->pop_back();
-	}
-
-	return CalcCost(&bestSolution, aArray);
+	mBestFoundSolutionCost.store(CalcCost(bestFoundSolutionCopy, aArray));
+	mAlgorithmLoopIsWorking.store(false);
+	return mBestFoundSolutionCost.load();
 }
